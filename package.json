@@ -1,0 +1,22 @@
+{
+  "name": "twitter-trends-node",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "chromedriver": "^131.0.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongodb": "^6.12.0",
+    "selenium-webdriver": "^4.27.0",
+    "uuid": "^11.0.5",
+    "webdriver-manager": "^12.1.9"
+  }
+}
