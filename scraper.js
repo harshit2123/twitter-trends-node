@@ -8,6 +8,11 @@ class TwitterTrendsScraper {
   constructor() {
     this.mongoClient = null;
     this.collection = null;
+    this.credentials = null;
+  }
+
+  setCredentials(username, password) {
+    this.credentials = { username, password };
   }
 
   async connect() {
@@ -39,6 +44,12 @@ class TwitterTrendsScraper {
   }
 
   async loginX(driver) {
+    if (!this.credentials) {
+      throw new Error(
+        "No credentials provided. Please set credentials before logging in."
+      );
+    }
+
     try {
       console.log("Navigating to login page...");
       await driver.get("https://twitter.com/login");
@@ -50,7 +61,7 @@ class TwitterTrendsScraper {
         10000
       );
       await usernameInput.clear();
-      await usernameInput.sendKeys(config.twitter.username);
+      await usernameInput.sendKeys(this.credentials.username);
 
       const nextButton = await driver.wait(
         until.elementLocated(By.xpath('//span[text()="Next"]')),
@@ -65,7 +76,7 @@ class TwitterTrendsScraper {
         10000
       );
       await passwordInput.clear();
-      await passwordInput.sendKeys(config.twitter.password);
+      await passwordInput.sendKeys(this.credentials.password);
 
       const loginButton = await driver.wait(
         until.elementLocated(By.xpath('//span[text()="Log in"]')),
@@ -90,77 +101,133 @@ class TwitterTrendsScraper {
     }
   }
 
+//   async navigateToExplore(driver) {
+//     try {
+//       console.log("Navigating to Explore section...");
+//       const exploreLink = await driver.wait(
+//         until.elementLocated(By.css('a[href="/explore"]')),
+//         10000
+//       );
+//       await exploreLink.click();
+//       await driver.sleep(3000);
+//       console.log("Navigated to Explore section successfully");
+//     } catch (error) {
+//       console.error("Error navigating to Explore section:", error);
+//       throw error;
+//     }
+//   }
+
+//   async navigateToTrending(driver) {
+//     try {
+//       console.log("Navigating to Trending section...");
+//       const trendingTab = await driver.wait(
+//         until.elementLocated(
+//           By.xpath('//a[contains(@href, "/explore/tabs/trending")]')
+//         ),
+//         10000
+//       );
+//       await trendingTab.click();
+//       await driver.sleep(3000);
+//       console.log("Navigated to Trending section successfully");
+//     } catch (error) {
+//       console.error("Error navigating to Trending section:", error);
+//       throw error;
+//     }
+//   }
+
+//   async clickShowMore(driver) {
+//     try {
+//       console.log("Looking for Show more button...");
+//       const showMoreButton = await driver.wait(
+//         until.elementLocated(By.xpath('//span[text()="Show more"]')),
+//         10000
+//       );
+//       console.log("Found Show more button, clicking...");
+//       await showMoreButton.click();
+//       await driver.sleep(2000); // Wait for new trends to load
+//       console.log("Show more clicked successfully");
+//     } catch (error) {
+//       console.error("Error clicking Show more:", error);
+//       throw error;
+//     }
+//   }
+
   async getTrends() {
     let driver;
     try {
+      if (!this.credentials) {
+        throw new Error(
+          "No credentials provided. Please set credentials before getting trends."
+        );
+      }
+
       if (!this.mongoClient) {
         await this.connect();
       }
+
       driver = await this.setupDriver();
       await this.loginX(driver);
-      console.log("Navigating to Explore page...");
 
-    
+      // Wait for the "What's happening" section to load
+      console.log("Waiting for trends to load...");
       await driver.sleep(3000);
 
-    
-      const exploreLink = await driver.wait(
-        until.elementLocated(By.css('a[href="/explore"]')),
-        10000
-      );
-      await exploreLink.click();
-      await driver.sleep(3000);
-      try {
-        const trendingTab = await driver.wait(
-          until.elementLocated(By.xpath('//span[text()="Trending"]')),
-          10000
-        );
-        await trendingTab.click();
-        await driver.sleep(2000);
-      } catch (error) {
-        console.log("Already in Trending section or tab not found");
-      }
-
-      console.log("Getting trends from Explore page...");
-
-      // Get all trend cells
+      // Get trends from "What's happening" section
       const trendCells = await driver.wait(
         until.elementsLocated(By.css('[data-testid="trend"]')),
         10000
       );
 
       const trendTexts = [];
+      let trendsProcessed = 0;
 
+      // Process each trend cell to get the actual trending topic
+      for (const cell of trendCells) {
+        if (trendsProcessed >= 4) break; // Stop after getting 4 trends
 
-      for (const cell of trendCells.slice(0, 5)) {
         const cellText = await cell.getText();
+        console.log("Raw trend cell text:", cellText);
+
+        // Split the text into lines and process
         const lines = cellText.split("\n");
 
-       
-        let trendTopic = "";
-        for (let i = 0; i < lines.length; i++) {
-          if (
-            !lines[i].match(/^\d+$/) &&
-            !lines[i].includes("Trending") &&
-            !lines[i].includes("Events") &&
-            !lines[i].includes("posts") &&
-            !lines[i].includes("·") &&
-            lines[i].trim() !== ""
-          ) {
-            trendTopic = lines[i].trim();
+        // Find the actual trend name (text between ** markers)
+        let trendTopic = null;
+
+        for (const line of lines) {
+          if (line.startsWith("**") && line.endsWith("**")) {
+            trendTopic = line.replace(/\*\*/g, "").trim();
             break;
           }
         }
 
-        if (trendTopic) {
+        // If no ** markers found, use the first non-metadata line
+        if (!trendTopic) {
+          for (const line of lines) {
+            if (
+              !line.match(/^\d+$/) && // not a number
+              line !== "·" &&
+              !line.includes("posts") &&
+              !line.includes("Trending") &&
+              !line.includes("Entertainment") &&
+              !line.includes("Politics") &&
+              !line.includes("Sports") &&
+              line.trim() !== ""
+            ) {
+              trendTopic = line.trim();
+              break;
+            }
+          }
+        }
+
+        if (trendTopic && !trendTexts.includes(trendTopic)) {
+          console.log("Found trend:", trendTopic);
           trendTexts.push(trendTopic);
+          trendsProcessed++;
         }
       }
 
-      // Ensure we have exactly 5 trends
-      while (trendTexts.length < 5) {
-        trendTexts.push("No trend available");
-      }
+      console.log("All extracted trends:", trendTexts);
 
       // Store in MongoDB
       const record = {
@@ -169,12 +236,11 @@ class TwitterTrendsScraper {
         nameoftrend2: trendTexts[1] || "No trend available",
         nameoftrend3: trendTexts[2] || "No trend available",
         nameoftrend4: trendTexts[3] || "No trend available",
-        nameoftrend5: trendTexts[4] || "No trend available",
         timestamp: new Date(),
         ip_address: "127.0.0.1",
       };
 
-      console.log("Extracted trends:", trendTexts);
+      console.log("Final record:", record);
       await this.collection.insertOne(record);
       return record;
     } catch (error) {

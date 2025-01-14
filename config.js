@@ -1,4 +1,3 @@
-// config.js
 require("dotenv").config();
 
 module.exports = {
@@ -12,9 +11,5 @@ module.exports = {
     port: process.env.PROXYMESH_PORT,
     username: process.env.PROXYMESH_USERNAME,
     password: process.env.PROXYMESH_PASSWORD,
-  },
-  twitter: {
-    username: process.env.TWITTER_LOGIN,
-    password: process.env.TWITTER_PASSWORD,
   },
 };
