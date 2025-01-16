@@ -1,7 +1,8 @@
 const express = require("express");
 const path = require("path");
 const bodyParser = require("body-parser");
-const TwitterTrendsScraper = require("./scraper.js");
+const TwitterTrendsScraper = require("./scraper");
+require("dotenv").config();
 
 const app = express();
 const port = process.env.PORT || 3000;

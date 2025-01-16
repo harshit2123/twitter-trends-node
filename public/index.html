@@ -2,12 +2,96 @@
 <html>
   <head>
     <title>Twitter Trends Results</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 20px auto;
+        padding: 0 20px;
+        background-color: #f5f8fa;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+      .login-form {
+        margin-bottom: 20px;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      .form-group input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      button {
+        background-color: #1da1f2;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 25px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.2s;
+      }
+      button:hover {
+        background-color: #1991da;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      #results {
+        margin-top: 20px;
+        display: none;
+      }
+      .trend-list {
+        list-style-type: none;
+        padding: 0;
+      }
+      .trend-item {
+        padding: 10px 0;
+        border-bottom: 1px solid #e1e8ed;
+      }
+      .trend-item:last-child {
+        border-bottom: none;
+      }
+      .json-data {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        font-family: monospace;
+        white-space: pre-wrap;
+        margin-top: 20px;
+      }
+      .loading {
+        text-align: center;
+        padding: 20px;
+        display: none;
+      }
+      .error {
+        color: #dc3545;
+        background-color: #f8d7da;
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 10px;
+        display: none;
+      }
+    </style>
   </head>
   <body>
     <div class="container">
       <h1>Twitter Trends Scraper</h1>
-
       <div class="login-form">
         <div class="form-group">
           <label for="username">Twitter Username:</label>
@@ -28,31 +112,23 @@
           />
         </div>
       </div>
-
       <button onclick="fetchTrends()" id="fetchButton">
         Click here to run the script
       </button>
-
       <div id="loading" class="loading">
         Fetching trending topics... Please wait...
       </div>
-
       <div id="error" class="error"></div>
-
       <div id="results">
         <h2>
           These are the most happening topics as on <span id="timestamp"></span>
         </h2>
-
         <ul class="trend-list" id="trendsList"></ul>
-
         <p>
           The IP address used for this query was <span id="ipAddress"></span>
         </p>
-
         <h3>JSON extract from MongoDB:</h3>
         <div class="json-data" id="jsonData"></div>
-
         <button onclick="fetchTrends()" style="margin-top: 20px">
           Click here to run the query again
         </button>
@@ -60,7 +136,7 @@
     </div>
 
     <script>
-      function fetchTrends() {
+      async function fetchTrends() {
         const button = document.getElementById("fetchButton");
         const loading = document.getElementById("loading");
         const results = document.getElementById("results");
@@ -80,57 +156,57 @@
         results.style.display = "none";
         error.style.display = "none";
 
-        fetch("/api/scrape", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ username, password }),
-        })
-          .then((response) => {
-            if (!response.ok) {
-              throw new Error("Failed to fetch trends");
-            }
-            return response.json();
-          })
-          .then((data) => {
-            // Update timestamp
-            document.getElementById("timestamp").textContent = new Date(
-              data.timestamp
-            ).toLocaleString();
-
-            // Update IP address
-            document.getElementById("ipAddress").textContent = data.ip_address;
-
-            // Update trends list
-            const trendsList = document.getElementById("trendsList");
-            trendsList.innerHTML = "";
-            for (let i = 1; i <= 4; i++) {
-              const li = document.createElement("li");
-              li.className = "trend-item";
-              li.textContent = `- ${data["nameoftrend" + i]}`;
-              trendsList.appendChild(li);
-            }
-
-            // Update JSON data
-            document.getElementById("jsonData").textContent = JSON.stringify(
-              data,
-              null,
-              2
-            );
-
-            // Show results
-            loading.style.display = "none";
-            results.style.display = "block";
-          })
-          .catch((err) => {
-            loading.style.display = "none";
-            error.style.display = "block";
-            error.textContent = `Error: ${err.message}`;
-          })
-          .finally(() => {
-            button.disabled = false;
+        try {
+          const response = await fetch("/api/scrape", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ username, password }),
           });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || "Failed to fetch trends");
+          }
+
+          const data = await response.json();
+
+          // Update timestamp
+          document.getElementById("timestamp").textContent = new Date(
+            data.timestamp
+          ).toLocaleString();
+
+          // Update IP address
+          document.getElementById("ipAddress").textContent = data.ip_address;
+
+          // Update trends list
+          const trendsList = document.getElementById("trendsList");
+          trendsList.innerHTML = "";
+          for (let i = 1; i <= 4; i++) {
+            const li = document.createElement("li");
+            li.className = "trend-item";
+            li.textContent = `- ${data["nameoftrend" + i]}`;
+            trendsList.appendChild(li);
+          }
+
+          // Update JSON data
+          document.getElementById("jsonData").textContent = JSON.stringify(
+            data,
+            null,
+            2
+          );
+
+          // Show results
+          loading.style.display = "none";
+          results.style.display = "block";
+        } catch (err) {
+          loading.style.display = "none";
+          error.style.display = "block";
+          error.textContent = `Error: ${err.message}`;
+        } finally {
+          button.disabled = false;
+        }
       }
     </script>
   </body>

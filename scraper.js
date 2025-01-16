@@ -1,38 +1,49 @@
 const { Builder, By, until } = require("selenium-webdriver");
 const chrome = require("selenium-webdriver/chrome");
 const { MongoClient } = require("mongodb");
-const { v4: uuidv4 } = require("uuid");
-const config = require("./config");
+require("dotenv").config();
 
 class TwitterTrendsScraper {
   constructor() {
-    this.mongoClient = null;
-    this.collection = null;
-    this.credentials = null;
+    this.mongoUri = process.env.MONGODB_URI;
+    this.dbName = process.env.MONGODB_DATABASE;
+    if (!this.mongoUri) {
+      throw new Error("MONGODB_URI environment variable is not set");
+    }
+    if (!this.dbName) {
+      throw new Error("MONGODB_DATABASE environment variable is not set");
+    }
   }
 
   setCredentials(username, password) {
-    this.credentials = { username, password };
+    this.username = username;
+    this.password = password;
   }
 
   async connect() {
-    this.mongoClient = new MongoClient(config.mongodb.uri);
-    await this.mongoClient.connect();
-    const db = this.mongoClient.db(config.mongodb.dbName);
-    this.collection = db.collection(config.mongodb.collection);
+    try {
+      this.client = new MongoClient(this.mongoUri);
+      await this.client.connect();
+      this.db = this.client.db(this.dbName);
+      console.log("Successfully connected to MongoDB");
+    } catch (error) {
+      console.error("MongoDB connection error:", error);
+      throw new Error("Failed to connect to database");
+    }
   }
 
   async disconnect() {
-    if (this.mongoClient) {
-      await this.mongoClient.close();
+    if (this.client) {
+      await this.client.close();
     }
   }
 
   async setupDriver() {
     const options = new chrome.Options();
+    options.addArguments("--no-sandbox");
+    options.addArguments("--disable-dev-shm-usage");
     options.addArguments("--headless"); // Run in headless mode for Vercel
     options.addArguments("--disable-gpu");
-    options.addArguments("--no-sandbox");
     options.addArguments("--disable-dev-shm-usage");
     options.addArguments("--disable-blink-features=AutomationControlled");
     options.addArguments("--disable-extensions");
@@ -44,7 +55,7 @@ class TwitterTrendsScraper {
   }
 
   async loginX(driver) {
-    if (!this.credentials) {
+    if (!this.username || !this.password) {
       throw new Error(
         "No credentials provided. Please set credentials before logging in."
       );
@@ -61,28 +72,20 @@ class TwitterTrendsScraper {
         10000
       );
       await usernameInput.clear();
-      await usernameInput.sendKeys(this.credentials.username);
-
-      const nextButton = await driver.wait(
-        until.elementLocated(By.xpath('//span[text()="Next"]')),
-        10000
-      );
-      await nextButton.click();
+      await usernameInput.sendKeys(this.username);
+      await driver.findElement(By.css('div[role="button"]')).click();
       await driver.sleep(2000);
 
       console.log("Entering password...");
       const passwordInput = await driver.wait(
-        until.elementLocated(By.css('input[type="password"]')),
+        until.elementLocated(By.css('input[name="password"]')),
         10000
       );
       await passwordInput.clear();
-      await passwordInput.sendKeys(this.credentials.password);
-
-      const loginButton = await driver.wait(
-        until.elementLocated(By.xpath('//span[text()="Log in"]')),
-        10000
-      );
-      await loginButton.click();
+      await passwordInput.sendKeys(this.password);
+      await driver
+        .findElement(By.css('div[data-testid="LoginForm_Login_Button"]'))
+        .click();
       await driver.sleep(5000);
 
       try {
@@ -101,148 +104,53 @@ class TwitterTrendsScraper {
     }
   }
 
-  async navigateToExplore(driver) {
-    try {
-      console.log("Navigating to Explore section...");
-      const exploreLink = await driver.wait(
-        until.elementLocated(By.css('a[href="/explore"]')),
-        10000
-      );
-      await exploreLink.click();
-      await driver.sleep(3000);
-      console.log("Navigated to Explore section successfully");
-    } catch (error) {
-      console.error("Error navigating to Explore section:", error);
-      throw error;
-    }
-  }
-
-  async navigateToTrending(driver) {
-    try {
-      console.log("Navigating to Trending section...");
-      const trendingTab = await driver.wait(
-        until.elementLocated(
-          By.xpath('//a[contains(@href, "/explore/tabs/trending")]')
-        ),
-        10000
-      );
-      await trendingTab.click();
-      await driver.sleep(3000);
-      console.log("Navigated to Trending section successfully");
-    } catch (error) {
-      console.error("Error navigating to Trending section:", error);
-      throw error;
-    }
-  }
-
-  async clickShowMore(driver) {
-    try {
-      console.log("Looking for Show more button...");
-      const showMoreButton = await driver.wait(
-        until.elementLocated(By.xpath('//span[text()="Show more"]')),
-        10000
-      );
-      console.log("Found Show more button, clicking...");
-      await showMoreButton.click();
-      await driver.sleep(2000); // Wait for new trends to load
-      console.log("Show more clicked successfully");
-    } catch (error) {
-      console.error("Error clicking Show more:", error);
-      throw error;
-    }
-  }
-
   async getTrends() {
     let driver;
     try {
-      if (!this.credentials) {
+      if (!this.username || !this.password) {
         throw new Error(
           "No credentials provided. Please set credentials before getting trends."
         );
       }
 
-      if (!this.mongoClient) {
-        await this.connect();
-      }
+      await this.connect();
 
       driver = await this.setupDriver();
       await this.loginX(driver);
 
-      // Navigate to the Explore section
-      await this.navigateToExplore(driver);
+      // Navigate to Explore/Trends page
+      console.log("Navigating to Explore/Trends page...");
+      await driver.get("https://twitter.com/explore");
+      await driver.sleep(5000);
 
-      // Navigate to the Trending section
-      await this.navigateToTrending(driver);
-
-      // Wait for initial trends to load
-      await driver.sleep(3000);
-
-      // Click "Show more" to get all trends
-      await this.clickShowMore(driver);
-
-      // Get all trend cells
-      const trendCells = await driver.wait(
+      // Wait for trends to load
+      const trends = await driver.wait(
         until.elementsLocated(By.css('[data-testid="trend"]')),
-        10000
+        15000 // Increased timeout to 15 seconds
       );
 
-      const trendTexts = [];
-      let trendsProcessed = 0;
-
-      // Process each trend cell to get the actual trending topic
-      for (const cell of trendCells) {
-        if (trendsProcessed >= 5) break; // Stop after getting 5 trends
-
-        const cellText = await cell.getText();
-        const lines = cellText.split("\n");
-
-        // Find the actual trend (the line that's either a hashtag or doesn't contain category markers)
-        let trendTopic = "";
-        for (const line of lines) {
-          // Skip lines containing specific phrases
-          if (
-            line.includes("posts") ||
-            line.includes("· Trending") ||
-            line === "Trending" ||
-            line.includes("Trending in") ||
-            line.includes("ago")
-          ) {
-            continue;
-          }
-          // If line is a hashtag or looks like a topic name
-          if (line.startsWith("#") || /^[^·]*$/.test(line)) {
-            trendTopic = line.trim();
-            break;
-          }
-        }
-
-        // Further filtering to ensure it's a valid trend topic
-        if (trendTopic && !trendTexts.includes(trendTopic)) {
-          trendTexts.push(trendTopic);
-          trendsProcessed++;
-        }
+      // Extract trend information
+      const trendData = [];
+      for (let i = 0; i < Math.min(4, trends.length); i++) {
+        const trendText = await trends[i].getText();
+        trendData.push(trendText);
       }
 
-      // Ensure we have exactly 5 trends
-      while (trendTexts.length < 5) {
-        trendTexts.push("No trend available");
-      }
-
-      // Store in MongoDB
-      const record = {
-        _id: uuidv4(),
-        nameoftrend1: trendTexts[0],
-        nameoftrend2: trendTexts[1],
-        nameoftrend3: trendTexts[2],
-        nameoftrend4: trendTexts[3],
-        //  nameoftrend5: trendTexts[4],
+      // Prepare result object
+      const result = {
         timestamp: new Date(),
-        ip_address: "127.0.0.1",
+        ip_address: "127.0.0.1", // Local testing IP
       };
 
-      console.log("Extracted trends:", trendTexts);
-      await this.collection.insertOne(record);
-      return record;
+      // Add trends to result
+      trendData.forEach((trend, index) => {
+        result[`nameoftrend${index + 1}`] = trend;
+      });
+
+      // Save to MongoDB
+      await this.db.collection("trends").insertOne(result);
+
+      return result;
     } catch (error) {
       console.error("Error scraping trends:", error);
       throw error;
@@ -250,6 +158,7 @@ class TwitterTrendsScraper {
       if (driver) {
         await driver.quit();
       }
+      await this.disconnect();
     }
   }
 }
